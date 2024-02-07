@@ -52,18 +52,6 @@ func identityPacket() []byte {
 	return data
 }
 
-// Read from a connection in another goroutine to be able to sync everything
-// The buffer should be handled with care as it is not thread safe, but can be
-// handled by calling the function after buffer processing is done
-func readFromConnection(conn io.Reader, buf []byte, ch chan<- chanMsg) {
-	n, err := conn.Read(buf)
-
-	ch <- chanMsg{
-		Msg: buf[:n],
-		Err: err,
-	}
-}
-
 func handleTcp(ctx context.Context, addr netip.AddrPort, identity internal.GonnectIdentity) {
 	wg := internal.WgFromContext(ctx)
 	defer wg.Done()
@@ -108,9 +96,17 @@ func handleTcp(ctx context.Context, addr netip.AddrPort, identity internal.Gonne
 
 	buf := [1024 * 4]byte{}
 	recv := make(chan chanMsg)
-	go readFromConnection(s, buf[:], recv)
+
+	// Read from a connection in another goroutine to be able to sync everything
+	// The buffer should be handled with care as it is not thread safe, but can be
+	// handled by calling the function after buffer processing is done
+	recvFunc := func() {
+		n, err := s.Read(buf[:])
+		recv <- chanMsg{Msg: buf[:n], Err: err}
+	}
 
 	for {
+		go recvFunc()
 		select {
 		case <-ctx.Done():
 			return
@@ -176,7 +172,6 @@ func handleTcp(ctx context.Context, addr netip.AddrPort, identity internal.Gonne
 					s.Write(append(resp, '\n'))
 				}
 			}
-			go readFromConnection(s, buf[:], recv)
 		}
 	}
 }
