@@ -5,11 +5,6 @@ import (
 	"sync"
 )
 
-func BorrowWg(wg *sync.WaitGroup) *sync.WaitGroup {
-	wg.Add(1)
-	return wg
-}
-
 type wgctxkey string
 
 const wgkey = "waitgroup"
@@ -26,6 +21,28 @@ func WgFromContext(ctx context.Context) *sync.WaitGroup {
 	if wg, ok := v.(*sync.WaitGroup); ok {
 		wg.Add(1)
 		return wg
+	}
+
+	return nil
+}
+
+// --
+
+type identityctxkey string
+
+const identitykey = "identity"
+
+func WithIdentity(ctx context.Context, identity GonnectIdentity) context.Context {
+	return context.WithValue(ctx, identitykey, identity)
+}
+
+func IdentityFromContext(ctx context.Context) *GonnectIdentity {
+	v := ctx.Value(wgkey)
+	if v == nil {
+		return nil
+	}
+	if identity, ok := v.(*GonnectIdentity); ok {
+		return identity
 	}
 
 	return nil

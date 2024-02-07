@@ -48,6 +48,7 @@ func main() {
 	ctx = internal.WithWg(ctx, &wg)
 
 	discover.Announce(ctx)
+	// plugins.WatchClipboard(ctx)
 
 	// Wait for interrupt
 	sig := make(chan os.Signal, 1)

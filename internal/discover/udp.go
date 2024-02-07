@@ -31,7 +31,7 @@ func ListenUdp(ctx context.Context) {
 }
 
 func handleUdp(baseCtx context.Context, listener *net.UDPConn) {
-	currentClients := make(map[string]context.CancelFunc)
+	currentClients := make(map[string]any)
 	buf := [4096]byte{}
 
 	for {
@@ -42,31 +42,25 @@ func handleUdp(baseCtx context.Context, listener *net.UDPConn) {
 			}
 			panic(err)
 		}
-		if cancel, ok := currentClients[addr.String()]; ok {
-			cancel()
-			slog.Debug("duplicate connection, cancelling", "addr", addr)
-		}
 
-		ctx, cancel := context.WithCancel(baseCtx)
-		currentClients[addr.String()] = cancel
-
-		var data internal.GonnectPacket[internal.GonnectIdentity]
-		err = json.Unmarshal(buf[:n], &data)
+		var identityPacket internal.GonnectPacket[internal.GonnectIdentity]
+		err = json.Unmarshal(buf[:n], &identityPacket)
 		if err != nil {
-			slog.ErrorContext(ctx, "error while unmarshalling udp", err)
-			cancel()
-			delete(currentClients, addr.String())
+			slog.Error("error while unmarshalling udp", err)
 			continue
 		}
 
-		go func(ctx context.Context, cancel context.CancelFunc) {
-			target := netip.AddrPortFrom(addr.AddrPort().Addr(), data.Body.TcpPort)
-			establishTcp(ctx, target, data.Body)
-		}(ctx, cancel)
-	}
+		if _, ok := currentClients[identityPacket.Body.DeviceId]; ok {
+			slog.Debug("duplicate connection, dropping", "addr", addr)
+			continue
+		}
+		ctx := internal.WithIdentity(baseCtx, identityPacket.Body)
+		currentClients[identityPacket.Body.DeviceId] = nil
 
-	// Clean up
-	for _, cancel := range currentClients {
-		cancel()
+		go func(ctx context.Context) {
+			target := netip.AddrPortFrom(addr.AddrPort().Addr(), identityPacket.Body.TcpPort)
+			handleTcp(baseCtx, target, identityPacket.Body)
+			delete(currentClients, identityPacket.Body.DeviceId)
+		}(ctx)
 	}
 }

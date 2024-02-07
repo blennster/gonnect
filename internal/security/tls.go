@@ -1,6 +1,7 @@
 package security
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
@@ -47,16 +48,17 @@ func DecodePem(cert []byte) (*x509.Certificate, error) {
 	return x509.ParseCertificate(b.Bytes)
 }
 
-func Upgrade(conn net.Conn, name string) (*tls.Conn, error) {
+func Upgrade(ctx context.Context, conn net.Conn, name string) (*tls.Conn, error) {
 	config := GetConfig()
-	config.GetConfigForClient = func(chi *tls.ClientHelloInfo) (*tls.Config, error) {
-		if chi.ServerName == name {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("client name %s does not match with cerificate name %s", name, chi.ServerName)
-	}
+	// Android client hello does not send server name
+	// config.GetConfigForClient = func(chi *tls.ClientHelloInfo) (*tls.Config, error) {
+	// 	if chi.ServerName == name {
+	// 		return nil, nil
+	// 	}
+	// 	return nil, fmt.Errorf("client name %s does not match with cerificate name %s", name, chi.ServerName)
+	// }
 
 	c := tls.Server(conn, config)
-	err := c.Handshake()
+	err := c.HandshakeContext(ctx)
 	return c, err
 }

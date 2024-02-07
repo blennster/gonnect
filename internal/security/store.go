@@ -11,5 +11,7 @@ type DeviceStore interface {
 
 var (
 	// Devices DeviceStore = &inMemoryDeviceStore{devices: make(map[string]*x509.Certificate)}
+
+	// An implementation of DeviceStore using the XDG_DATA_HOME for storage
 	Devices DeviceStore = fileStore{}
 )

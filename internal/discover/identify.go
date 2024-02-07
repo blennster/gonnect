@@ -2,7 +2,6 @@ package discover
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"io"
@@ -12,55 +11,13 @@ import (
 
 	"github.com/blennster/gonnect/internal"
 	"github.com/blennster/gonnect/internal/config"
+	"github.com/blennster/gonnect/internal/plugins"
 	"github.com/blennster/gonnect/internal/security"
 )
 
-func ListenTcp(ctx context.Context) {
-	wg := internal.WgFromContext(ctx)
-	defer wg.Done()
-
-	listener, err := net.Listen("tcp", ":1716")
-	if err != nil {
-		panic(err)
-	}
-	defer listener.Close()
-
-	slog.Info("Listening on :1716/tcp")
-
-	config := security.GetConfig()
-
-	go func() {
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				if errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) {
-					return
-				}
-				panic(err)
-			}
-			slog.Debug("Got tcp connection", "from", conn.RemoteAddr())
-
-			go func() {
-				defer conn.Close()
-				defer slog.Info("Connection closed")
-
-				conn = tls.Server(conn, config)
-				for {
-					bytes := identityPacket()
-					_, err = conn.Write(bytes)
-					if err != nil {
-						if errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) {
-							return
-						}
-						panic(err)
-					}
-				}
-			}()
-		}
-	}()
-
-	<-ctx.Done()
-	slog.Info("Shutting down TLS.")
+type chanMsg struct {
+	Msg []byte
+	Err error
 }
 
 func identityPacket() []byte {
@@ -70,8 +27,8 @@ func identityPacket() []byte {
 		DeviceType:           config.GetType(),
 		IncomingCapabilities: nil,
 		OutgoingCapabilities: nil,
-		ProtocolVersion:      7, // Magic value
-		TcpPort:              0, // not used
+		ProtocolVersion:      internal.ProtocolVersion, // Magic value
+		TcpPort:              0,                        // not used
 	}
 
 	info.IncomingCapabilities = []string{
@@ -95,7 +52,22 @@ func identityPacket() []byte {
 	return data
 }
 
-func establishTcp(ctx context.Context, addr netip.AddrPort, identity internal.GonnectIdentity) {
+// Read from a connection in another goroutine to be able to sync everything
+// The buffer should be handled with care as it is not thread safe, but can be
+// handled by calling the function after buffer processing is done
+func readFromConnection(conn io.Reader, buf []byte, ch chan<- chanMsg) {
+	n, err := conn.Read(buf)
+
+	ch <- chanMsg{
+		Msg: buf[:n],
+		Err: err,
+	}
+}
+
+func handleTcp(ctx context.Context, addr netip.AddrPort, identity internal.GonnectIdentity) {
+	wg := internal.WgFromContext(ctx)
+	defer wg.Done()
+
 	// target := netip.AddrPortFrom(addr, port)
 	target := addr
 	dialer := net.Dialer{}
@@ -115,66 +87,96 @@ func establishTcp(ctx context.Context, addr netip.AddrPort, identity internal.Go
 	}
 
 	slog.Debug("upgrading to tls", "for", identity.DeviceId)
-	s, err := security.Upgrade(conn, "")
+	s, err := security.Upgrade(ctx, conn, identity.DeviceId)
 	if err != nil {
 		slog.Error("failed to upgrade to tls", "for", identity.DeviceId, "error", err)
 		return
 	}
 	slog.Debug("upgraded", "for", identity.DeviceId)
 
+	// Check that the device name is not spoofed
 	savedCert := security.Devices.Get(identity.DeviceId)
 	if savedCert != nil && !savedCert.Equal(s.ConnectionState().PeerCertificates[0]) {
 		slog.Info("name or certificate mismatch, dropping", "DeviceId", identity.DeviceId)
 		return
 	}
 
-	buf := [4096]byte{}
+	var pluginCh <-chan []byte
+	if savedCert.Equal(s.ConnectionState().PeerCertificates[0]) {
+		ctx, pluginCh = plugins.WithPlugins(ctx)
+	}
+
+	buf := [1024 * 4]byte{}
+	recv := make(chan chanMsg)
+	go readFromConnection(s, buf[:], recv)
+
 	for {
-		n, err := s.Read(buf[:])
-		if err != nil {
-			// connection was terminated or the server has closed
-			if errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) {
-				return
+		select {
+		case <-ctx.Done():
+			return
+		case msg := <-pluginCh:
+			if msg != nil {
+				slog.Debug("writing to", "to", identity.DeviceId, "data", string(msg))
+				_, err := s.Write(append(msg, '\n'))
+				if err != nil {
+					slog.ErrorContext(ctx, "failed to write", "to", identity.DeviceId, "error", err)
+					return
+				}
 			}
-			slog.ErrorContext(ctx, "failed to read", "from", identity.DeviceId, "error", err)
-			return
-		}
-
-		var pkt internal.GonnectPacket[any]
-		err = json.Unmarshal(buf[:n], &pkt)
-		if err != nil {
-			slog.Error("Failed to unmarshal", "from", identity.DeviceId, "error", err)
-			return
-		}
-
-		switch pkt.Type {
-		case internal.GonnectPairType:
-			var pkt internal.GonnectPacket[internal.GonnectPair]
-			err := json.Unmarshal(buf[:n], &pkt)
+		case msg := <-recv:
+			err := msg.Err
 			if err != nil {
-				slog.Error("failed to unmarshal", "from", identity.DeviceId, "error", err)
+				// connection was terminated or the server has closed
+				if errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) {
+					return
+				}
+				slog.ErrorContext(ctx, "failed to read", "from", identity.DeviceId, "error", err)
 				return
 			}
 
-			if pkt.Body.Pair {
-				slog.Info("pairing", "with", identity.DeviceId)
-				security.Devices.Add(identity.DeviceId, s.ConnectionState().PeerCertificates[0])
-				pkt = internal.NewGonnectPacket[internal.GonnectPair](internal.GonnectPair{Pair: true})
-				b, _ := json.Marshal(pkt)
-				s.Write(append(b, '\n'))
-				s.Write(identityPacket())
-			} else {
-				security.Devices.Remove(identity.DeviceId)
-				slog.Info("unpairing", "with", identity.DeviceId)
-			}
-		default:
-			savedCert := security.Devices.Get(identity.DeviceId)
-			if savedCert == nil || !savedCert.Equal(s.ConnectionState().PeerCertificates[0]) {
-				slog.Info("untrusted device tried to communicate", "from", target)
+			var pkt internal.GonnectPacket[any]
+			err = json.Unmarshal(msg.Msg, &pkt)
+			if err != nil {
+				slog.Error("failed to unmarshal", "from", identity.DeviceId, "error", err, "msg", msg.Msg)
 				return
 			}
 
-			slog.Info("unhandled packet", "from", target, "type", pkt.Type, "body", pkt.Body)
+			switch pkt.Type {
+			case internal.GonnectPairType:
+				var pkt internal.GonnectPacket[internal.GonnectPair]
+				err := json.Unmarshal(msg.Msg, &pkt)
+				if err != nil {
+					slog.Error("failed to unmarshal", "from", identity.DeviceId, "error", err)
+					return
+				}
+
+				if pkt.Body.Pair {
+					slog.Info("pairing", "with", identity.DeviceId)
+					security.Devices.Add(identity.DeviceId, s.ConnectionState().PeerCertificates[0])
+					pkt := internal.NewGonnectPacket[internal.GonnectPair](internal.GonnectPair{Pair: true})
+					b, _ := json.Marshal(pkt)
+					s.Write(append(b, '\n'))
+					s.Write(identityPacket())
+					ctx, pluginCh = plugins.WithPlugins(ctx)
+
+				} else {
+					security.Devices.Remove(identity.DeviceId)
+					slog.Info("unpairing", "with", identity.DeviceId)
+					return
+				}
+			default:
+				savedCert := security.Devices.Get(identity.DeviceId)
+				if savedCert == nil || !savedCert.Equal(s.ConnectionState().PeerCertificates[0]) {
+					slog.Info("untrusted device tried to communicate", "from", target)
+					return
+				}
+
+				resp := plugins.Route(ctx, msg.Msg)
+				if resp != nil {
+					s.Write(append(resp, '\n'))
+				}
+			}
+			go readFromConnection(s, buf[:], recv)
 		}
 	}
 }
