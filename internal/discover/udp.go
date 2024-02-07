@@ -51,7 +51,7 @@ func handleUdp(baseCtx context.Context, listener *net.UDPConn) {
 		}
 
 		if _, ok := currentClients[identityPacket.Body.DeviceId]; ok {
-			slog.Debug("duplicate connection, dropping", "addr", addr)
+			slog.Debug("dropping duplicate connection", "addr", addr)
 			continue
 		}
 		ctx := internal.WithIdentity(baseCtx, identityPacket.Body)

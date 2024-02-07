@@ -38,7 +38,11 @@ func Route(ctx context.Context, data []byte) []byte {
 	}
 
 	pkt := plugin.React(ctx, data)
-	buf, _ := json.Marshal(pkt)
+	buf, err := json.Marshal(pkt)
+	if err != nil {
+		slog.Error("error marshalling packet for plugin", "plugin", plugin, "err", err)
+		panic(err)
+	}
 
 	return buf
 }
