@@ -1,12 +1,12 @@
-package internal
+package discover
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"os"
-	"sync"
 	"time"
 
+	"github.com/blennster/gonnect/internal"
 	"github.com/grandcat/zeroconf"
 )
 
@@ -21,7 +21,7 @@ func GetDevices() []string {
 
 	go func(results <-chan *zeroconf.ServiceEntry) {
 		for entry := range results {
-			log.Println(entry)
+			slog.Debug("MDNS", "Got entry", entry)
 			names = append(names, entry.AddrIPv4[0].String())
 		}
 	}(entries)
@@ -35,7 +35,8 @@ func GetDevices() []string {
 	return names
 }
 
-func Announce(shutdown chan struct{}, wg *sync.WaitGroup) {
+func AnnounceMdns(ctx context.Context) {
+	wg := internal.WgFromContext(ctx)
 	defer wg.Done()
 
 	name := "gonnect"
@@ -57,12 +58,15 @@ func Announce(shutdown chan struct{}, wg *sync.WaitGroup) {
 		panic(err)
 	}
 
-	log.Println("Published service:")
-	log.Println("- Name:", name)
-	log.Println("- Type:", service)
-	log.Println("- Domain:", domain)
-	log.Println("- Port:", port)
+	slog.Info("published zeroconf service",
+		slog.Group("service",
+			"Name:", name,
+			"Type:", service,
+			"Domain:", domain,
+			"Port:", port,
+		),
+	)
 
-	<-shutdown
-	log.Println("Shutting down.")
+	<-ctx.Done()
+	slog.Info("shutting down zeroconf.")
 }
