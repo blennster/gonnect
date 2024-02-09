@@ -19,10 +19,7 @@ func Handle(ctx context.Context, data []byte) []byte {
 	switch packet.Type {
 	case internal.GonnectPingType:
 		plugin = pingPlugin{}
-	case internal.GonnectClipboardConnectType:
-		slog.Debug("clipboard connection")
-		return nil
-	case internal.GonnectClipboardType:
+	case internal.GonnectClipboardType, internal.GonnectClipboardConnectType:
 		plugin = ctx.Value(internal.GonnectClipboardType).(*clipboardPlugin)
 	default:
 		slog.Error("unknown packet type", "type", packet.Type)

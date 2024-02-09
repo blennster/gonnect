@@ -14,7 +14,8 @@ import (
 // it is bidirectional with the desktop clipboard being authorative ish
 type clipboardPlugin struct {
 	// synchronization channel used for not sending back the same data that was received
-	syncCh chan struct{}
+	syncCh    chan struct{}
+	connected bool
 }
 
 // Create a new clipboard plugin instance and start the clipboard watching goroutine
@@ -24,13 +25,35 @@ func NewClipboardPlugin(ctx context.Context, ch chan<- GonnectPluginMessage) *cl
 	}
 	go c.clipboardWatcher(ctx, ch)
 
+	data, err := json.Marshal(internal.NewGonnectPacket[internal.GonnectClipboardConnect](internal.GonnectClipboardConnect{}))
+	if err != nil {
+		panic(err)
+	}
+	// We dont need the NewChanMsg here since the slice does not live longer than this
+	// function
+	ch <- GonnectPluginMessage{Msg: data}
+
 	return &c
 }
 
 // React implements GonnectPlugin.
 func (c *clipboardPlugin) React(ctx context.Context, data []byte) any {
+	var packet internal.GonnectPacket[any]
+	err := json.Unmarshal(data, &packet)
+	if err != nil {
+		panic(err)
+	}
+
+	returnPacket := internal.NewGonnectPacket[internal.GonnectClipboardConnect](internal.GonnectClipboardConnect{})
+
+	if packet.Type == internal.GonnectClipboardConnectType {
+		c.connected = true
+		slog.Debug("cliboard connected")
+		return returnPacket
+	}
+
 	var pkt internal.GonnectPacket[internal.GonnectClipboard]
-	err := json.Unmarshal(data, &pkt)
+	err = json.Unmarshal(data, &pkt)
 	if err != nil {
 		panic(err)
 	}
@@ -41,7 +64,7 @@ func (c *clipboardPlugin) React(ctx context.Context, data []byte) any {
 	cmd.Run()
 	slog.Debug("wrote clipboard", "content", pkt.Body.Content)
 
-	return internal.NewGonnectPacket[internal.GonnectClipboardConnect](internal.GonnectClipboardConnect{})
+	return returnPacket
 }
 
 // listen for clipboard changes and send to other device when notified about change
@@ -75,10 +98,10 @@ func (c *clipboardPlugin) clipboardWatcher(ctx context.Context, ch chan<- Gonnec
 			n, err := pipe.Read(buf[:])
 			if err != nil {
 				slog.Error("error when reading in clipboard watcher", err)
-				procCh <- internal.ChanMsg{Err: err}
+				procCh <- internal.NewChanMsg(nil, err)
 				return
 			}
-			procCh <- internal.ChanMsg{Msg: buf[:n]}
+			procCh <- internal.NewChanMsg(buf[:n], nil)
 		}
 	}()
 
@@ -90,21 +113,25 @@ func (c *clipboardPlugin) clipboardWatcher(ctx context.Context, ch chan<- Gonnec
 			select {
 			// Discard if it is a duplicate from us writing to the clipboard
 			case <-c.syncCh:
-				continue
 			default:
 				if msg.Err != nil {
 					slog.Error("error when reading in clipboard watcher", msg.Err)
-					ch <- GonnectPluginMessage{Err: msg.Err}
+					ch <- GonnectPluginMessage(internal.NewChanMsg(nil, msg.Err))
 					return
 				}
 
-				slog.Debug("sending clipboard", "data", string(msg.Msg))
 				pkt := internal.NewGonnectPacket[internal.GonnectClipboard](internal.GonnectClipboard{Content: string(msg.Msg)})
 				data, err := json.Marshal(pkt)
 				if err != nil {
 					panic(err)
 				}
-				ch <- GonnectPluginMessage{Msg: data} // send data
+				if !c.connected {
+					slog.Debug("not sending clipboard", "reason", "not connected")
+					continue
+				}
+
+				slog.Debug("sending clipboard", "data", string(msg.Msg))
+				ch <- GonnectPluginMessage(internal.NewChanMsg(data, nil))
 			}
 		}
 	}

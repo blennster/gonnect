@@ -13,7 +13,7 @@ type GonnectPlugin interface {
 type GonnectPluginMessage internal.ChanMsg
 
 func WithPlugins(ctx context.Context) (context.Context, <-chan GonnectPluginMessage) {
-	ch := make(chan GonnectPluginMessage)
+	ch := make(chan GonnectPluginMessage, 4)
 
 	// ping plugin is stateless and non-bidirectional as of now
 	ctx = context.WithValue(ctx, internal.GonnectPingType, pingPlugin{})

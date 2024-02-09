@@ -49,8 +49,10 @@ func main() {
 	ctx = internal.WithWg(ctx, &wg)
 
 	l := setupRpc(t)
-	defer l.Close()
-	defer os.Remove("/tmp/gonnect.sock")
+	defer func() {
+		l.Close()
+		os.Remove("/tmp/gonnect.sock")
+	}()
 
 	discover.Announce(ctx)
 	// plugins.WatchClipboard(ctx)

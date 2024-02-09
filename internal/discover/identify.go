@@ -145,7 +145,7 @@ func handleTcp(ctx context.Context, addr netip.AddrPort, identity internal.Gonne
 	go func() {
 		for {
 			n, err := s.Read(buf[:])
-			recv <- internal.ChanMsg{Msg: buf[:n], Err: err}
+			recv <- internal.NewChanMsg(buf[:n], err)
 			if err != nil {
 				return
 			}
