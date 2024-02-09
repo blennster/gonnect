@@ -5,6 +5,11 @@ import (
 	"sync"
 )
 
+type ChanMsg struct {
+	Msg []byte
+	Err error
+}
+
 type wgctxkey string
 
 const wgkey = "waitgroup"

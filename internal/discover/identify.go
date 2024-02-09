@@ -15,11 +15,6 @@ import (
 	"github.com/blennster/gonnect/internal/security"
 )
 
-type chanMsg struct {
-	Msg []byte
-	Err error
-}
-
 func identityPacket() []byte {
 	info := internal.GonnectIdentity{
 		DeviceId:             config.GetId(),
@@ -95,29 +90,37 @@ func handleTcp(ctx context.Context, addr netip.AddrPort, identity internal.Gonne
 	}
 
 	buf := [1024 * 4]byte{}
-	recv := make(chan chanMsg)
+	recv := make(chan internal.ChanMsg)
 
 	// Read from a connection in another goroutine to be able to sync everything
 	// The buffer should be handled with care as it is not thread safe, but can be
 	// handled by calling the function after buffer processing is done
-	recvFunc := func() {
-		n, err := s.Read(buf[:])
-		recv <- chanMsg{Msg: buf[:n], Err: err}
+	go func() {
+		for {
+			n, err := s.Read(buf[:])
+			recv <- internal.ChanMsg{Msg: buf[:n], Err: err}
+			if err != nil {
+				return
+			}
+		}
+	}()
 	}
 
 	for {
-		go recvFunc()
 		select {
 		case <-ctx.Done():
 			return
 		case msg := <-pluginCh:
-			if msg != nil {
-				slog.Debug("writing to", "to", identity.DeviceId, "data", string(msg))
-				_, err := s.Write(append(msg, '\n'))
-				if err != nil {
-					slog.ErrorContext(ctx, "failed to write", "to", identity.DeviceId, "error", err)
-					return
-				}
+			if msg.Err != nil {
+				slog.ErrorContext(ctx, "plugin error", "error", msg.Err)
+				return
+			}
+
+			slog.Debug("writing to", "to", identity.DeviceId, "data", string(msg.Msg))
+			_, err := s.Write(append(msg.Msg, '\n'))
+			if err != nil {
+				slog.ErrorContext(ctx, "failed to write", "to", identity.DeviceId, "error", err)
+				return
 			}
 		case msg := <-recv:
 			err := msg.Err
@@ -167,7 +170,7 @@ func handleTcp(ctx context.Context, addr netip.AddrPort, identity internal.Gonne
 					return
 				}
 
-				resp := plugins.Route(ctx, msg.Msg)
+				resp := plugins.Handle(ctx, msg.Msg)
 				if resp != nil {
 					s.Write(append(resp, '\n'))
 				}

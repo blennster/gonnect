@@ -8,11 +8,7 @@ import (
 	"github.com/blennster/gonnect/internal"
 )
 
-type GonnectPlugin interface {
-	React(context.Context, []byte) any
-}
-
-func Route(ctx context.Context, data []byte) []byte {
+func Handle(ctx context.Context, data []byte) []byte {
 	var packet internal.GonnectPacket[any]
 	err := json.Unmarshal(data, &packet)
 	if err != nil {
@@ -22,12 +18,12 @@ func Route(ctx context.Context, data []byte) []byte {
 
 	switch packet.Type {
 	case internal.GonnectPingType:
-		plugin = PingPlugin{}
+		plugin = pingPlugin{}
 	case internal.GonnectClipboardConnectType:
 		slog.Debug("clipboard connection")
 		return nil
 	case internal.GonnectClipboardType:
-		plugin = ctx.Value(internal.GonnectClipboardType).(ClipboardPlugin)
+		plugin = ctx.Value(internal.GonnectClipboardType).(*clipboardPlugin)
 	default:
 		slog.Error("unknown packet type", "type", packet.Type)
 		return nil

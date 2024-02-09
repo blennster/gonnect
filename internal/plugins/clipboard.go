@@ -12,23 +12,23 @@ import (
 
 // The clipboard plugin handles syncing the clipboard with the other device
 // it is bidirectional with the desktop clipboard being authorative ish
-type ClipboardPlugin struct {
+type clipboardPlugin struct {
 	// synchronization channel used for not sending back the same data that was received
 	syncCh chan struct{}
 }
 
-func NewClipboardPlugin(ctx context.Context, ch chan<- []byte) ClipboardPlugin {
-	c := ClipboardPlugin{
+// Create a new clipboard plugin instance and start the clipboard watching goroutine
+func NewClipboardPlugin(ctx context.Context, ch chan<- GonnectPluginMessage) *clipboardPlugin {
+	c := clipboardPlugin{
 		syncCh: make(chan struct{}, 1), // One buffer is needed to stop blocking
 	}
-
 	go c.clipboardWatcher(ctx, ch)
 
-	return c
+	return &c
 }
 
 // React implements GonnectPlugin.
-func (c ClipboardPlugin) React(ctx context.Context, data []byte) any {
+func (c *clipboardPlugin) React(ctx context.Context, data []byte) any {
 	var pkt internal.GonnectPacket[internal.GonnectClipboard]
 	err := json.Unmarshal(data, &pkt)
 	if err != nil {
@@ -45,7 +45,7 @@ func (c ClipboardPlugin) React(ctx context.Context, data []byte) any {
 }
 
 // listen for clipboard changes and send to other device when notified about change
-func (c *ClipboardPlugin) clipboardWatcher(ctx context.Context, ch chan<- []byte) {
+func (c *clipboardPlugin) clipboardWatcher(ctx context.Context, ch chan<- GonnectPluginMessage) {
 	slog.Debug("clipboard watcher started")
 
 	cmd := exec.CommandContext(ctx, "wl-paste", "-t", "text", "-w", "tee")
@@ -66,32 +66,45 @@ func (c *ClipboardPlugin) clipboardWatcher(ctx context.Context, ch chan<- []byte
 		}
 	}()
 
-	buf := [4096]byte{}
-	for {
-		select {
-		case <-ctx.Done():
-			slog.Debug("killing clipboard watcher")
-			return
-		default:
-			slog.Debug("waiting for read")
+	// Read from the pipe in another goroutine
+	// so that we can listen to the context done
+	procCh := make(chan internal.ChanMsg)
+	go func() {
+		buf := [4096]byte{}
+		for {
 			n, err := pipe.Read(buf[:])
 			if err != nil {
 				slog.Error("error when reading in clipboard watcher", err)
+				procCh <- internal.ChanMsg{Err: err}
 				return
 			}
+			procCh <- internal.ChanMsg{Msg: buf[:n]}
+		}
+	}()
 
-			// only process the data if it comes from an external source
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case msg := <-procCh:
 			select {
+			// Discard if it is a duplicate from us writing to the clipboard
 			case <-c.syncCh:
 				continue
 			default:
-				slog.Debug("clipboard watcher", "data", buf[:n])
-				pkt := internal.NewGonnectPacket[internal.GonnectClipboard](internal.GonnectClipboard{Content: string(buf[:n])})
+				if msg.Err != nil {
+					slog.Error("error when reading in clipboard watcher", msg.Err)
+					ch <- GonnectPluginMessage{Err: msg.Err}
+					return
+				}
+
+				slog.Debug("sending clipboard", "data", string(msg.Msg))
+				pkt := internal.NewGonnectPacket[internal.GonnectClipboard](internal.GonnectClipboard{Content: string(msg.Msg)})
 				data, err := json.Marshal(pkt)
 				if err != nil {
 					panic(err)
 				}
-				ch <- data
+				ch <- GonnectPluginMessage{Msg: data} // send data
 			}
 		}
 	}
