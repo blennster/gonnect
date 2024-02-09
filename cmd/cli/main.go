@@ -1,15 +1,9 @@
 package main
 
 import (
-	"context"
 	"log/slog"
+	"net/rpc"
 	"os"
-	"os/signal"
-	"sync"
-	"syscall"
-
-	"github.com/blennster/gonnect/internal"
-	"github.com/blennster/gonnect/internal/discover"
 )
 
 func setupLogger() {
@@ -23,30 +17,42 @@ func setupLogger() {
 }
 
 func main() {
-	// client, _ := rpc.DialHTTP("unix", "gonnect.sock")
-	// var reply string
-	// client.Call("T.Hello", "World", &reply)
-	// slog.Info(reply)
-	// return
+	client, err := rpc.DialHTTP("unix", "/tmp/gonnect.sock")
+	if err != nil {
+		panic(err)
+	}
 
-	setupLogger()
+	var reply string
+	err = client.Call("GonnectRpc.Hello", "world", &reply)
+	if err != nil {
+		panic(err)
+	}
+	slog.Info(reply)
+	err = client.Call("GonnectRpc.Pair", "d8261e07215dbc42", &reply)
+	if err != nil {
+		panic(err)
+	}
+	slog.Info(reply)
+	return
 
-	shutdown := make(chan struct{})
-	wg := sync.WaitGroup{}
-	ctx := internal.WithWg(context.Background(), &wg)
-
-	discover.Announce(ctx)
-
-	// Wait for interrupt
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
-	<-sig
-
-	// Closing a channel notifies all goroutines.
-	close(shutdown)
-
-	// This is just for synchronisation to make sure everything has been finished
-	wg.Wait()
-
-	slog.Info("Byebye")
+	// setupLogger()
+	//
+	// shutdown := make(chan struct{})
+	// wg := sync.WaitGroup{}
+	// ctx := internal.WithWg(context.Background(), &wg)
+	//
+	// discover.Announce(ctx)
+	//
+	// // Wait for interrupt
+	// sig := make(chan os.Signal, 1)
+	// signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	// <-sig
+	//
+	// // Closing a channel notifies all goroutines.
+	// close(shutdown)
+	//
+	// // This is just for synchronisation to make sure everything has been finished
+	// wg.Wait()
+	//
+	// slog.Info("Byebye")
 }

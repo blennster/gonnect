@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net"
+	"net/http"
+	"net/rpc"
 	"os"
 	"os/signal"
 	"sync"
@@ -25,27 +28,29 @@ func setupLogger() {
 	slog.Debug("Enabling debug logging")
 }
 
-func main() {
-	// t := new(internal.T)
-	// rpc.Register(t)
-	// rpc.HandleHTTP()
-	// l, err := net.Listen("unix", "gonnect.sock")
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// defer l.Close()
-	//
-	// go http.Serve(l, nil)
-	//
-	// c := make(chan os.Signal, 1)
-	// signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-	// <-c
+func setupRpc(t any) net.Listener {
+	rpc.Register(t)
+	rpc.HandleHTTP()
+	l, err := net.Listen("unix", "/tmp/gonnect.sock")
+	if err != nil {
+		panic(err)
+	}
+	go http.Serve(l, nil)
 
+	return l
+}
+
+func main() {
 	setupLogger()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, t := internal.WithRpc(context.Background())
+	ctx, cancel := context.WithCancel(ctx)
 	wg := sync.WaitGroup{}
 	ctx = internal.WithWg(ctx, &wg)
+
+	l := setupRpc(t)
+	defer l.Close()
+	defer os.Remove("/tmp/gonnect.sock")
 
 	discover.Announce(ctx)
 	// plugins.WatchClipboard(ctx)

@@ -2,6 +2,7 @@ package discover
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"io"
@@ -47,6 +48,57 @@ func identityPacket() []byte {
 	return data
 }
 
+func pair(ctx context.Context, conn *tls.Conn, identity internal.GonnectIdentity, recv <-chan internal.ChanMsg) error {
+	select {
+	case <-ctx.Done():
+		return errors.New("context done")
+	case msg := <-recv:
+		var pkt internal.GonnectPacket[any]
+		err := json.Unmarshal(msg.Msg, &pkt)
+		if err != nil {
+			// slog.Error("failed to unmarshal", "from", identity.DeviceId, "error", err, "msg", msg.Msg)
+			return err
+		}
+
+		if pkt.Type == internal.GonnectPairType {
+			var pkt internal.GonnectPacket[internal.GonnectPair]
+			err := json.Unmarshal(msg.Msg, &pkt)
+			if err != nil {
+				// slog.Error("failed to unmarshal", "from", identity.DeviceId, "error", err)
+				return err
+			}
+
+			if pkt.Body.Pair {
+				// slog.Info("pairing", "with", identity.DeviceId)
+				security.Devices.Add(identity.DeviceId, conn.ConnectionState().PeerCertificates[0])
+				pkt := internal.NewGonnectPacket[internal.GonnectPair](internal.GonnectPair{Pair: true})
+
+				r := internal.GetRpc(ctx)
+
+				slog.Info("pair requested", "from", identity.DeviceId)
+				m := <-r.PairCh
+				slog.Info("pair accepted", "for", m)
+
+				if m == identity.DeviceId {
+					r.PairCh <- "ok"
+					b, _ := json.Marshal(pkt)
+					conn.Write(append(b, '\n'))
+					conn.Write(identityPacket())
+					return nil
+				}
+				r.PairCh <- "ko"
+
+			} else {
+				security.Devices.Remove(identity.DeviceId)
+				slog.Info("unpairing", "with", identity.DeviceId)
+				return errors.New("unpairing")
+			}
+		}
+
+		return errors.New("got non pair packet from unpaired device")
+	}
+}
+
 func handleTcp(ctx context.Context, addr netip.AddrPort, identity internal.GonnectIdentity) {
 	wg := internal.WgFromContext(ctx)
 	defer wg.Done()
@@ -84,11 +136,6 @@ func handleTcp(ctx context.Context, addr netip.AddrPort, identity internal.Gonne
 		return
 	}
 
-	var pluginCh <-chan []byte
-	if savedCert.Equal(s.ConnectionState().PeerCertificates[0]) {
-		ctx, pluginCh = plugins.WithPlugins(ctx)
-	}
-
 	buf := [1024 * 4]byte{}
 	recv := make(chan internal.ChanMsg)
 
@@ -104,6 +151,18 @@ func handleTcp(ctx context.Context, addr netip.AddrPort, identity internal.Gonne
 			}
 		}
 	}()
+
+	if savedCert == nil {
+		err = pair(ctx, s, identity, recv)
+		if err != nil {
+			slog.ErrorContext(ctx, "failed to pair", "to", identity.DeviceId, "error", err)
+			return
+		}
+	}
+
+	var pluginCh <-chan plugins.GonnectPluginMessage
+	if savedCert.Equal(s.ConnectionState().PeerCertificates[0]) {
+		ctx, pluginCh = plugins.WithPlugins(ctx)
 	}
 
 	for {
@@ -149,19 +208,11 @@ func handleTcp(ctx context.Context, addr netip.AddrPort, identity internal.Gonne
 					return
 				}
 
-				if pkt.Body.Pair {
-					slog.Info("pairing", "with", identity.DeviceId)
-					security.Devices.Add(identity.DeviceId, s.ConnectionState().PeerCertificates[0])
-					pkt := internal.NewGonnectPacket[internal.GonnectPair](internal.GonnectPair{Pair: true})
-					b, _ := json.Marshal(pkt)
-					s.Write(append(b, '\n'))
-					s.Write(identityPacket())
-					ctx, pluginCh = plugins.WithPlugins(ctx)
-
-				} else {
+				if !pkt.Body.Pair {
 					security.Devices.Remove(identity.DeviceId)
 					slog.Info("unpairing", "with", identity.DeviceId)
 					return
+				} else {
 				}
 			default:
 				savedCert := security.Devices.Get(identity.DeviceId)
