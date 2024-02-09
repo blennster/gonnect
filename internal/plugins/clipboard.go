@@ -29,8 +29,7 @@ func NewClipboardPlugin(ctx context.Context, ch chan<- GonnectPluginMessage) *cl
 	if err != nil {
 		panic(err)
 	}
-	// We dont need the NewChanMsg here since the slice does not live longer than this
-	// function
+	// We dont need the NewChanMsg here since the slice does not live longer than this function
 	ch <- GonnectPluginMessage{Msg: data}
 
 	return &c
