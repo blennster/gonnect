@@ -3,6 +3,7 @@ package plugins
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 
 	"github.com/blennster/gonnect/internal"
@@ -16,26 +17,29 @@ func Handle(ctx context.Context, data []byte) []byte {
 	}
 	var plugin GonnectPlugin
 
+	var t any
 	switch packet.Type {
 	case internal.GonnectPingType:
-		plugin = pingPlugin{}
+		t = ctx.Value(internal.GonnectPingType)
 	case internal.GonnectClipboardType, internal.GonnectClipboardConnectType:
-		plugin = ctx.Value(internal.GonnectClipboardType).(*clipboardPlugin)
+		t = ctx.Value(internal.GonnectClipboardType)
 	default:
-		slog.Error("unknown packet type", "type", packet.Type)
+		slog.Error("unknown packet type in plugin handler", "type", packet.Type)
 		return nil
 	}
 
+	plugin = t.(GonnectPlugin)
+
 	if plugin == nil {
-		panic("plugin is nil")
+		panic(fmt.Sprintf("no plugin found for packet %q", data))
 	}
 
 	pkt := plugin.React(ctx, data)
-	buf, err := json.Marshal(pkt)
+	response, err := json.Marshal(pkt)
 	if err != nil {
-		slog.Error("error marshalling packet for plugin", "plugin", plugin, "err", err)
+		slog.Error("error marshalling response from plugin", "plugin", plugin, "err", err)
 		panic(err)
 	}
 
-	return buf
+	return response
 }

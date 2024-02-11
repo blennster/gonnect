@@ -1,6 +1,8 @@
 package main
 
 import (
+	"flag"
+	"fmt"
 	"log/slog"
 	"net/rpc"
 	"os"
@@ -16,18 +18,39 @@ func setupLogger() {
 	slog.SetDefault(slog.New(h))
 }
 
+var (
+	pair = flag.String("pair", "", "pair with device")
+)
+
 func main() {
+	flag.Parse()
 	client, err := rpc.DialHTTP("unix", "/tmp/gonnect.sock")
 	if err != nil {
-		panic(err)
+		slog.Error("failed to dial rpc, is your server running?", "err", err)
+		os.Exit(1)
 	}
 
-	var reply string
-	err = client.Call("GonnectRpc.Hello", "world", &reply)
-	if err != nil {
-		panic(err)
+	if *pair != "" {
+		var reply string
+		fmt.Printf("pairing with %s\n", *pair)
+		err = client.Call("GonnectRpc.Pair", *pair, &reply)
+		if err != nil {
+			panic(err)
+		}
+
+		fmt.Println(reply)
+		return
 	}
-	slog.Info(reply)
+
+	flag.PrintDefaults()
+	os.Exit(1)
+
+	var reply string
+	// err = client.Call("GonnectRpc.Hello", "world", &reply)
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// slog.Info(reply)
 	err = client.Call("GonnectRpc.Pair", "d8261e07215dbc42", &reply)
 	if err != nil {
 		panic(err)

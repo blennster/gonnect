@@ -54,6 +54,9 @@ func main() {
 		os.Remove("/tmp/gonnect.sock")
 	}()
 
+	// The main flow of the program is that a UDP connection is made,
+	// and then that device is dialed via TCP and upgraded to a TLS connection
+	// when capabilites have been established
 	discover.Announce(ctx)
 	// plugins.WatchClipboard(ctx)
 

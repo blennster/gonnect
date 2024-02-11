@@ -3,14 +3,12 @@ package security
 import (
 	"crypto/x509"
 	"os"
-	"sync"
 
 	"github.com/blennster/gonnect/internal/config"
 )
 
-type fileStore struct {
-	*sync.RWMutex // Maybe not needed but could be good to garantee thread safety
-}
+// Unix file system is "thread safe" so locking is not needed
+type fileStore struct{}
 
 // Add implements DeviceStore.
 func (fileStore) Add(device string, cert *x509.Certificate) {

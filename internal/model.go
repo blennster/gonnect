@@ -3,6 +3,8 @@ package internal
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/blennster/gonnect/internal/config"
 )
 
 type GonnectMessageType string
@@ -95,4 +97,29 @@ func NewGonnectPacket[T GonnectPacketType](body T) GonnectPacket[T] {
 		Type: GonnectMessageType(body.Type()),
 		Body: body,
 	}
+}
+
+func Identity() GonnectIdentity {
+	identity := GonnectIdentity{
+		DeviceId:             config.GetId(),
+		DeviceName:           config.GetName(),
+		DeviceType:           config.GetType(),
+		IncomingCapabilities: nil,
+		OutgoingCapabilities: nil,
+		ProtocolVersion:      ProtocolVersion, // Magic value
+		TcpPort:              0,               // not used
+	}
+
+	identity.IncomingCapabilities = []string{
+		"kdeconnect.ping",
+		"kdeconnect.clipboard",
+		"kdeconnect.clipboard.connect",
+	}
+	identity.OutgoingCapabilities = []string{
+		"kdeconnect.ping",
+		"kdeconnect.clipboard",
+		"kdeconnect.clipboard.connect",
+	}
+
+	return identity
 }

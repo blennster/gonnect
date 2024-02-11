@@ -21,7 +21,7 @@ type clipboardPlugin struct {
 // Create a new clipboard plugin instance and start the clipboard watching goroutine
 func NewClipboardPlugin(ctx context.Context, ch chan<- GonnectPluginMessage) *clipboardPlugin {
 	c := clipboardPlugin{
-		syncCh: make(chan struct{}, 1), // One buffer is needed to stop blocking
+		syncCh: make(chan struct{}, 1),
 	}
 	go c.clipboardWatcher(ctx, ch)
 
