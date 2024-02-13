@@ -13,6 +13,7 @@ import (
 
 	"github.com/blennster/gonnect/internal"
 	"github.com/blennster/gonnect/internal/discover"
+	gonnectrpc "github.com/blennster/gonnect/internal/rpc"
 )
 
 func setupLogger() {
@@ -43,7 +44,7 @@ func setupRpc(t any) net.Listener {
 func main() {
 	setupLogger()
 
-	ctx, t := internal.WithRpc(context.Background())
+	ctx, t := gonnectrpc.WithRpc(context.Background())
 	ctx, cancel := context.WithCancel(ctx)
 	wg := sync.WaitGroup{}
 	ctx = internal.WithWg(ctx, &wg)
@@ -58,7 +59,6 @@ func main() {
 	// and then that device is dialed via TCP and upgraded to a TLS connection
 	// when capabilites have been established
 	discover.Announce(ctx)
-	// plugins.WatchClipboard(ctx)
 
 	// Wait for interrupt
 	sig := make(chan os.Signal, 1)

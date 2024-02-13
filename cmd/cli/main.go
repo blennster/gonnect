@@ -19,7 +19,7 @@ func setupLogger() {
 }
 
 var (
-	pair = flag.String("pair", "", "pair with device")
+	device = flag.String("device", "", "device to operate on")
 )
 
 func main() {
@@ -30,52 +30,48 @@ func main() {
 		os.Exit(1)
 	}
 
-	if *pair != "" {
-		var reply string
-		fmt.Printf("pairing with %s\n", *pair)
-		err = client.Call("GonnectRpc.Pair", *pair, &reply)
+	printUsage := func() {
+		flag.PrintDefaults()
+		os.Exit(1)
+	}
+
+	switch os.Args[1] {
+	case "pair":
+		if *device != "" {
+			var reply string
+			fmt.Printf("pairing with %s\n", *device)
+			err = client.Call("GonnectRpc.Pair", *device, &reply)
+			if err != nil {
+				panic(err)
+			}
+
+			fmt.Println(reply)
+			return
+		}
+		printUsage()
+	case "unpair":
+		if *device != "" {
+			var reply string
+			fmt.Printf("unpairing with %s\n", *device)
+			err = client.Call("GonnectRpc.Unpair", *device, &reply)
+			if err != nil {
+				panic(err)
+			}
+
+			fmt.Println(reply)
+			return
+		}
+		printUsage()
+	case "get":
+		var reply []string
+		err = client.Call("GonnectRpc.GetDevices", struct{}{}, &reply)
 		if err != nil {
 			panic(err)
 		}
 
-		fmt.Println(reply)
+		for _, name := range reply {
+			fmt.Println(name)
+		}
 		return
 	}
-
-	flag.PrintDefaults()
-	os.Exit(1)
-
-	var reply string
-	// err = client.Call("GonnectRpc.Hello", "world", &reply)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// slog.Info(reply)
-	err = client.Call("GonnectRpc.Pair", "d8261e07215dbc42", &reply)
-	if err != nil {
-		panic(err)
-	}
-	slog.Info(reply)
-	return
-
-	// setupLogger()
-	//
-	// shutdown := make(chan struct{})
-	// wg := sync.WaitGroup{}
-	// ctx := internal.WithWg(context.Background(), &wg)
-	//
-	// discover.Announce(ctx)
-	//
-	// // Wait for interrupt
-	// sig := make(chan os.Signal, 1)
-	// signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
-	// <-sig
-	//
-	// // Closing a channel notifies all goroutines.
-	// close(shutdown)
-	//
-	// // This is just for synchronisation to make sure everything has been finished
-	// wg.Wait()
-	//
-	// slog.Info("Byebye")
 }

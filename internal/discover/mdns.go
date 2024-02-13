@@ -2,18 +2,20 @@ package discover
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/blennster/gonnect/internal"
 	"github.com/grandcat/zeroconf"
 )
 
-func GetDevices() []string {
+func GetDevices() ([]string, error) {
 	resolver, err := zeroconf.NewResolver(nil)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	entries := make(chan *zeroconf.ServiceEntry)
@@ -22,17 +24,25 @@ func GetDevices() []string {
 	go func(results <-chan *zeroconf.ServiceEntry) {
 		for entry := range results {
 			slog.Debug("MDNS", "Got entry", entry)
-			names = append(names, entry.AddrIPv4[0].String())
+			deviceType := "unknown"
+			for _, v := range entry.Text {
+				if strings.HasPrefix(v, "type=") {
+					deviceType = strings.TrimPrefix(v, "type=")
+					break
+				}
+			}
+			name := fmt.Sprintf("%s [%s] (%s)", entry.Instance, deviceType, entry.AddrIPv4[0].String())
+			names = append(names, name)
 		}
 	}(entries)
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*1)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
 	defer cancel()
 
 	resolver.Browse(ctx, "_kdeconnect._udp", "local.", entries)
 
 	<-ctx.Done()
-	return names
+	return names, err
 }
 
 func AnnounceMdns(ctx context.Context) {

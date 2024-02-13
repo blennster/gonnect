@@ -34,28 +34,25 @@ func pair(ctx context.Context, conn *tls.Conn, identity internal.GonnectIdentity
 			}
 
 			if pkt.Body.Pair {
-				r := internal.GetRpc(ctx)
-				ch, unsubscribe := r.SubscribeToPair()
-				defer unsubscribe()
-
+				ch := security.RequestPairApproval(identity.DeviceId)
 				// The same broker is used for all connections,
 				// therefore it needs to be checked in a loop
 				for {
 					select {
 					case <-ctx.Done():
 						return errors.New("context done")
-					case m := <-ch:
+					case approval := <-ch:
 						// make sure that it is this device it is trying to pair with
-						if m == identity.DeviceId {
+						if approval {
 							pkt := internal.NewGonnectPacket[internal.GonnectPair](internal.GonnectPair{Pair: true})
 							b, _ := json.Marshal(pkt)
 							_, err := conn.Write(append(b, '\n'))
 							if err != nil {
-								r.Reply(fmt.Sprintf("pairing failed with message %q", err))
+								// r.Reply(fmt.Sprintf("pairing failed with message %q", err))
 								return err
 							}
 
-							r.Reply(identity.DeviceId)
+							// r.Reply(identity.DeviceId)
 							security.Devices.Add(identity.DeviceId, conn.ConnectionState().PeerCertificates[0])
 							return nil
 						}
