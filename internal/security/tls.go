@@ -11,17 +11,9 @@ import (
 	"github.com/blennster/gonnect/internal/config"
 )
 
-func GetCert() tls.Certificate {
-	cert, err := tls.LoadX509KeyPair("cert.pem", "key.pem")
-	if err != nil {
-		panic(err)
-	}
-	return cert
-}
-
 func GetConfig() *tls.Config {
 	return &tls.Config{
-		Certificates: []tls.Certificate{GetCert()},
+		Certificates: []tls.Certificate{config.GetCert()},
 		ClientAuth:   tls.RequireAnyClientCert,
 		ServerName:   config.GetId(),
 	}

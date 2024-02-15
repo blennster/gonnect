@@ -2,7 +2,6 @@ package config
 
 import (
 	"crypto/tls"
-	"log"
 	"os"
 
 	"github.com/google/uuid"
@@ -28,12 +27,28 @@ func DataHome() string {
 }
 
 func GetCert() tls.Certificate {
-	cert, err := tls.LoadX509KeyPair("cert.pem", "key.pem")
-	if err != nil {
-		log.Println(err)
-		panic(err)
+	certPath := DataHome() + "/cert.pem"
+	keyPath := DataHome() + "/key.pem"
+
+	_, certErr := os.Stat(certPath)
+	_, keyErr := os.Stat(keyPath)
+
+	if certErr != nil || keyErr != nil {
+		GenerateCerts(GetName(), DataHome()+"/")
 	}
-	return cert
+
+	cert, certErr := os.ReadFile(certPath)
+	key, keyErr := os.ReadFile(keyPath)
+
+	if certErr == nil && keyErr == nil {
+		cert, err := tls.X509KeyPair(cert, key)
+		if err != nil {
+			panic(err)
+		}
+		return cert
+	}
+
+	panic("failed to read certs")
 }
 
 func GetId() string {
