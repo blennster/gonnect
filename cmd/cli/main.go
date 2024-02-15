@@ -19,24 +19,26 @@ func setupLogger() {
 }
 
 var (
-	device = flag.String("device", "", "device to operate on")
+	deviceCmd = flag.NewFlagSet("", flag.ExitOnError)
+	device    = deviceCmd.String("device", "", "device to operate on")
 )
 
 func main() {
-	flag.Parse()
 	client, err := rpc.DialHTTP("unix", "/tmp/gonnect.sock")
 	if err != nil {
 		slog.Error("failed to dial rpc, is your server running?", "err", err)
 		os.Exit(1)
 	}
 
-	printUsage := func() {
-		flag.PrintDefaults()
+	if len(os.Args) < 2 {
+		fmt.Println("no command specified")
+		fmt.Println("available commands: pair, unpair, get")
 		os.Exit(1)
 	}
 
 	switch os.Args[1] {
 	case "pair":
+		deviceCmd.Parse(os.Args[2:])
 		if *device != "" {
 			var reply string
 			fmt.Printf("pairing with %s\n", *device)
@@ -48,8 +50,12 @@ func main() {
 			fmt.Println(reply)
 			return
 		}
-		printUsage()
+
+		fmt.Println("Usage:")
+		deviceCmd.PrintDefaults()
+		os.Exit(1)
 	case "unpair":
+		deviceCmd.Parse(os.Args[2:])
 		if *device != "" {
 			var reply string
 			fmt.Printf("unpairing with %s\n", *device)
@@ -61,7 +67,10 @@ func main() {
 			fmt.Println(reply)
 			return
 		}
-		printUsage()
+
+		fmt.Println("Usage:")
+		deviceCmd.PrintDefaults()
+		os.Exit(1)
 	case "get":
 		var reply []string
 		err = client.Call("GonnectRpc.GetDevices", struct{}{}, &reply)
