@@ -12,15 +12,15 @@ The project right now has many missing features and may never be found.
 
 Start the server using
 
-´´´sh
+```sh
 go run ./cmd/server
-´´´
+```
 
 and interact with it using the client
 
-´´´
+```sh
 go run ./cmd/cli <command>
-´´´
+```
 
 where the cli should tell you about the available commands.
 
