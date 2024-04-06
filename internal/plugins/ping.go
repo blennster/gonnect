@@ -19,7 +19,7 @@ func (pingPlugin) React(ctx context.Context, data []byte) any {
 		panic(err)
 	}
 
-	pkt := internal.NewGonnectPacket[internal.GonnectPing](internal.GonnectPing{Message: &message})
+	pkt := internal.NewGonnectPacket(internal.GonnectPing{Message: &message})
 
 	return pkt
 }

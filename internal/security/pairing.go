@@ -21,6 +21,15 @@ func DenyPair(device string) {
 	}
 }
 
+func AwaitingPair() []string {
+	keys := make([]string, len(pairingRequests))
+	for k := range pairingRequests {
+		keys = append(keys, k)
+	}
+
+	return keys
+}
+
 func RequestPairApproval(device string) <-chan bool {
 	ch := make(chan bool)
 	pairingRequests[device] = ch

@@ -71,7 +71,7 @@ func main() {
 		fmt.Println("Usage:")
 		deviceCmd.PrintDefaults()
 		os.Exit(1)
-	case "get":
+	case "list":
 		var reply []string
 		err = client.Call("GonnectRpc.GetDevices", struct{}{}, &reply)
 		if err != nil {

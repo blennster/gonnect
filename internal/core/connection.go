@@ -26,45 +26,46 @@ func pair(ctx context.Context, conn *tls.Conn, identity internal.GonnectIdentity
 			return err
 		}
 
+		var pairPkt internal.GonnectPacket[internal.GonnectPair]
 		if pkt.Type == internal.GonnectPairType {
-			var pkt internal.GonnectPacket[internal.GonnectPair]
-			err := json.Unmarshal(msg.Msg, &pkt)
+			err := json.Unmarshal(msg.Msg, &pairPkt)
 			if err != nil {
 				return err
 			}
+		} else {
+			return fmt.Errorf("unknown packet type: %q", msg.Msg)
+		}
 
-			if pkt.Body.Pair {
-				ch := security.RequestPairApproval(identity.DeviceId)
-				// The same broker is used for all connections,
-				// therefore it needs to be checked in a loop
-				for {
-					select {
-					case <-ctx.Done():
-						return errors.New("context done")
-					case approval := <-ch:
-						// make sure that it is this device it is trying to pair with
-						if approval {
-							pkt := internal.NewGonnectPacket[internal.GonnectPair](internal.GonnectPair{Pair: true})
-							b, _ := json.Marshal(pkt)
-							_, err := conn.Write(append(b, '\n'))
-							if err != nil {
-								// r.Reply(fmt.Sprintf("pairing failed with message %q", err))
-								return err
-							}
-
-							// r.Reply(identity.DeviceId)
-							security.Devices.Add(identity.DeviceId, conn.ConnectionState().PeerCertificates[0])
-							return nil
+		if pairPkt.Body.Pair {
+			ch := security.RequestPairApproval(identity.DeviceId)
+			// The same broker is used for all connections,
+			// therefore it needs to be checked in a loop
+			for {
+				select {
+				case <-ctx.Done():
+					return errors.New("context done")
+				case approval := <-ch:
+					// make sure that it is this device it is trying to pair with
+					if approval {
+						pkt := internal.NewGonnectPacket(internal.GonnectPair{Pair: true})
+						b, _ := json.Marshal(pkt)
+						_, err := conn.Write(append(b, '\n'))
+						if err != nil {
+							// r.Reply(fmt.Sprintf("pairing failed with message %q", err))
+							return err
 						}
+
+						// r.Reply(identity.DeviceId)
+						security.Devices.Add(identity.DeviceId, conn.ConnectionState().PeerCertificates[0])
+						return nil
 					}
 				}
-			} else {
-				security.Devices.Remove(identity.DeviceId)
-				slog.Info("unpairing", "with", identity.DeviceId)
-				return errors.New("unpairing")
 			}
+		} else {
+			security.Devices.Remove(identity.DeviceId)
+			slog.Info("unpairing", "with", identity.DeviceId)
+			return errors.New("unpairing")
 		}
-		return fmt.Errorf("unknown packet type: %q", msg.Msg)
 	}
 }
 
@@ -118,6 +119,7 @@ func Handle(ctx context.Context, s *tls.Conn, identity internal.GonnectIdentity)
 				slog.ErrorContext(ctx, "failed to send data", "device", identity.DeviceId, "error", err)
 				return
 			}
+		// We received a message from the client
 		case msg := <-recv:
 			err := msg.Err
 			if err != nil {
@@ -158,6 +160,7 @@ func Handle(ctx context.Context, s *tls.Conn, identity internal.GonnectIdentity)
 
 				resp := plugins.Handle(ctx, msg.Msg)
 				if resp != nil {
+					// Make sure to include the newline :S
 					s.Write(append(resp, '\n'))
 				}
 			}

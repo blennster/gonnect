@@ -25,7 +25,7 @@ func NewClipboardPlugin(ctx context.Context, ch chan<- GonnectPluginMessage) *cl
 	}
 	go c.clipboardWatcher(ctx, ch)
 
-	data, err := json.Marshal(internal.NewGonnectPacket[internal.GonnectClipboardConnect](internal.GonnectClipboardConnect{}))
+	data, err := json.Marshal(internal.NewGonnectPacket(internal.GonnectClipboardConnect{}))
 	if err != nil {
 		panic(err)
 	}
@@ -43,7 +43,7 @@ func (c *clipboardPlugin) React(ctx context.Context, data []byte) any {
 		panic(err)
 	}
 
-	returnPacket := internal.NewGonnectPacket[internal.GonnectClipboardConnect](internal.GonnectClipboardConnect{})
+	returnPacket := internal.NewGonnectPacket(internal.GonnectClipboardConnect{})
 
 	if packet.Type == internal.GonnectClipboardConnectType {
 		c.connected = true
@@ -96,7 +96,7 @@ func (c *clipboardPlugin) clipboardWatcher(ctx context.Context, ch chan<- Gonnec
 		for {
 			n, err := pipe.Read(buf[:])
 			if err != nil {
-				slog.Error("error when reading in clipboard watcher", err)
+				slog.Error("error when reading in clipboard watcher", "error", err)
 				procCh <- internal.NewChanMsg(nil, err)
 				return
 			}
@@ -114,12 +114,12 @@ func (c *clipboardPlugin) clipboardWatcher(ctx context.Context, ch chan<- Gonnec
 			case <-c.syncCh:
 			default:
 				if msg.Err != nil {
-					slog.Error("error when reading in clipboard watcher", msg.Err)
+					slog.Error("error when reading in clipboard watcher", "error", msg.Err)
 					ch <- GonnectPluginMessage(internal.NewChanMsg(nil, msg.Err))
 					return
 				}
 
-				pkt := internal.NewGonnectPacket[internal.GonnectClipboard](internal.GonnectClipboard{Content: string(msg.Msg)})
+				pkt := internal.NewGonnectPacket(internal.GonnectClipboard{Content: string(msg.Msg)})
 				data, err := json.Marshal(pkt)
 				if err != nil {
 					panic(err)

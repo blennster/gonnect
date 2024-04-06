@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/blennster/gonnect/internal/discover"
@@ -58,6 +60,19 @@ func (*GonnectRpc) GetDevices(_ struct{}, reply *[]string) error {
 	r, err := discover.GetDevices()
 	if err != nil {
 		return err
+	}
+
+	// This could be a map but the list would realistically be 10 long
+	waitingPair := security.AwaitingPair()
+	for i, d := range r {
+		deviceName := strings.Split(d, " ")[0]
+		if slices.Contains(waitingPair, deviceName) {
+			r[i] = r[i] + " - awaiting pair"
+		} else if security.Devices.Get(deviceName) != nil {
+			// TODO: This does not actually mean the device is trusted, just that
+			// the name has been trusted
+			r[i] = r[i] + " - trusted"
+		}
 	}
 	*reply = r
 	return nil
